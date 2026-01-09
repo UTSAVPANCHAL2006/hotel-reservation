@@ -137,6 +137,7 @@ if submit_button:
             else:
                 st.warning(f"Backend API returned status {response.status_code}. Falling back to local logic.")
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        mode = "Direct (Local)"
     
     
     if result is None:
