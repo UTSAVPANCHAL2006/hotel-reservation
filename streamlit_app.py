@@ -1,6 +1,18 @@
 import streamlit as st
 import requests
 import json
+import os
+import pandas as pd
+import joblib
+
+# Import local modules for fallback
+try:
+    from app.utils import load_model, preprocess_input
+except ImportError:
+    # Handle if app module is not in path (unlikely but safe)
+    import sys
+    sys.path.append(os.path.abspath("."))
+    from app.utils import load_model, preprocess_input
 
 # Set page config
 st.set_page_config(
@@ -8,6 +20,27 @@ st.set_page_config(
     page_icon="🏨",
     layout="centered"
 )
+
+# Cache model for direct mode
+@st.cache_resource
+def get_model():
+    return load_model()
+
+def direct_predict(payload):
+    # This logic matches app/main.py
+    model = get_model()
+    df = preprocess_input(payload)
+    prediction_code = model.predict(df)[0]
+    probabilities = model.predict_proba(df)[0]
+    
+    status_map = {0: 'Canceled', 1: 'Not_Canceled'}
+    prediction_label = status_map.get(prediction_code, "Unknown")
+    probability = float(probabilities[prediction_code])
+    
+    return {
+        "booking_status": prediction_label,
+        "probability": probability
+    }
 
 # Custom CSS for rich aesthetics
 st.markdown("""
@@ -91,31 +124,44 @@ if submit_button:
         "room_type_reserved": room_type_reserved
     }
     
+    result = None
+    mode = "Unknown"
+    
     try:
-        # Call FastAPI backend
-        response = requests.post("http://localhost:8000/predict", json=payload)
-        
-        if response.status_code == 200:
-            result = response.json()
-            status = result["booking_status"]
-            prob = result["probability"]
-            
-            st.markdown("---")
-            st.subheader("Prediction Analysis")
-            
-            # Show probability bar
-            st.write(f"Confidence Level: **{prob:.1%}**")
-            st.progress(prob)
-
-            if status == "Canceled":
-                st.markdown(f'<div class="prediction-card"><span class="status-canceled">Predicted Status: {status}</span></div>', unsafe_allow_html=True)
-                st.error("Caution: This reservation is likely to be canceled.")
+        # Try calling FastAPI backend first
+        with st.spinner("Connecting to backend API..."):
+            response = requests.post("http://localhost:8000/predict", json=payload, timeout=2)
+            if response.status_code == 200:
+                result = response.json()
+                mode = "API"
             else:
-                st.markdown(f'<div class="prediction-card"><span class="status-not-canceled">Predicted Status: {status}</span></div>', unsafe_allow_html=True)
-                st.success("Safe: This reservation is likely to be honored.")
+                st.warning(f"Backend API returned status {response.status_code}. Falling back to local logic.")
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+        # Fallback to local logic (Direct Mode)
+        mode = "Direct (Local)"
+    
+    if result is None:
+        try:
+            with st.spinner("Running local prediction logic..."):
+                result = direct_predict(payload)
+        except Exception as e:
+            st.error(f"Error in local prediction: {e}")
+
+    if result:
+        status = result["booking_status"]
+        prob = result["probability"]
+        
+        st.markdown("---")
+        st.subheader("Prediction Analysis")
+        st.caption(f"Mode: **{mode}**")
+        
+        # Show probability bar
+        st.write(f"Confidence Level: **{prob:.1%}**")
+        st.progress(prob)
+
+        if status == "Canceled":
+            st.markdown(f'<div class="prediction-card"><span class="status-canceled">Predicted Status: {status}</span></div>', unsafe_allow_html=True)
+            st.error("Caution: This reservation is likely to be canceled.")
         else:
-            st.error(f"Error: Unable to get prediction from backend. (Status Code: {response.status_code})")
-            st.info("Make sure the FastAPI server is running at http://localhost:8000")
-            
-    except requests.exceptions.ConnectionError:
-        st.error("Error: Could not connect to the FastAPI backend. Please ensure it is running.")
+            st.markdown(f'<div class="prediction-card"><span class="status-not-canceled">Predicted Status: {status}</span></div>', unsafe_allow_html=True)
+            st.success("Safe: This reservation is likely to be honored.")
