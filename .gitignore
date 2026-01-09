@@ -1,4 +1,0 @@
-venv/
-mlruns/
-mlflow.db/
-logs/
