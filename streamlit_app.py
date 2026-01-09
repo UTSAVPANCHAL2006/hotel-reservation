@@ -125,7 +125,7 @@ if submit_button:
     }
     
     result = None
-    mode = "Unknown"
+    
     
     try:
         # Try calling FastAPI backend first
@@ -137,8 +137,7 @@ if submit_button:
             else:
                 st.warning(f"Backend API returned status {response.status_code}. Falling back to local logic.")
     except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-        # Fallback to local logic (Direct Mode)
-        mode = "Direct (Local)"
+    
     
     if result is None:
         try:
@@ -153,7 +152,7 @@ if submit_button:
         
         st.markdown("---")
         st.subheader("Prediction Analysis")
-        st.caption(f"Mode: **{mode}**")
+    
         
         # Show probability bar
         st.write(f"Confidence Level: **{prob:.1%}**")
